@@ -23,7 +23,7 @@ def load_and_scale_data(csv_path: str):
     time_cols = [c for c in df.columns if "time" in c.lower() or "date" in c.lower()]
     if time_cols:
         df = df.sort_values(by=time_cols[0])
-
+    # print(df.head())
     numeric_df = df.select_dtypes(include=[np.number])
 
     if numeric_df.isnull().any().any():
@@ -31,6 +31,10 @@ def load_and_scale_data(csv_path: str):
 
     scaler = MinMaxScaler()
     X_scaled = scaler.fit_transform(numeric_df.values.astype(np.float32))
+    print("X_scaled ", X_scaled)
+    print(X_scaled.shape)
+    print("scaler_min ", scaler.data_min_)
+    print("scaler_max ", scaler.data_max_)
     return X_scaled, scaler
 
 def generate_physicsish_attack(context: np.ndarray) -> np.ndarray:

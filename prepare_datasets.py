@@ -11,7 +11,7 @@ RANDOM_SEED = 42
 np.random.seed(RANDOM_SEED)
 random.seed(RANDOM_SEED)
 
-SEQ_LEN = 32
+SEQ_LEN = 10
 DATA_PATH = "data/smart_grid_dataset.csv"
 OUT_DIR = "prepared_data"
 os.makedirs(OUT_DIR, exist_ok=True)
@@ -38,21 +38,39 @@ def load_and_scale_data(csv_path: str):
     return X_scaled, scaler
 
 def generate_physicsish_attack(context: np.ndarray) -> np.ndarray:
-    x_last = context[-1].copy()
+    """
+    EASY-MODE ATTACK:
+    Given a context (seq_len-1, D) in [0, 1], create a fake point that is
+    *very* easy to distinguish from real data.
+
+    Strategy:
+      - Start from the last real point.
+      - For a subset of key features (e.g. first 4), snap them to extreme
+        0.0 or 1.0 values, in a way that creates a large spike/flip compared
+        to the context.
+      - Clip to [0, 1] to stay in scaled space.
+
+    This should give you a clearly separable attack vs normal pattern.
+    """
+    # Use the last real point as a baseline
+    x_last = context[-1].copy()   # shape (D,)
     D = x_last.shape[0]
 
-    mode = np.random.choice(["scale", "offset", "noise"])
+    x_fake = x_last.copy()
 
-    if mode == "scale":
-        alpha = np.random.uniform(0.2, 0.5) * np.random.choice([-1, 1])
-        x_fake = x_last * (1.0 + alpha)
-    elif mode == "offset":
-        delta = np.random.uniform(0.1, 0.3) * np.random.choice([-1, 1])
-        x_fake = x_last + delta
-    else:
-        noise = np.random.normal(loc=0.0, scale=0.05, size=D)
-        x_fake = x_last + noise
+    # Choose how many features to "spike"
+    num_spike_features = min(4, D)   # first 4 features (e.g., V, A, kW, PF)
+    spike_indices = list(range(num_spike_features))
 
+    # For each of these features, flip to an extreme:
+    # if it's below 0.5, push to 1.0; if above 0.5, push to 0.0
+    for j in spike_indices:
+        if x_fake[j] < 0.5:
+            x_fake[j] = 1.0
+        else:
+            x_fake[j] = 0.0
+
+    # Ensure we stay in [0, 1]
     x_fake = np.clip(x_fake, 0.0, 1.0)
     return x_fake.astype(np.float32)
 

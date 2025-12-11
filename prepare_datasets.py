@@ -12,6 +12,18 @@ np.random.seed(RANDOM_SEED)
 random.seed(RANDOM_SEED)
 
 SEQ_LEN = 10
+ATTACK_DIFFICULTY = 0.95
+# Indices in numeric_df / X_scaled for the features we want to perturb
+ATTACK_FEATURE_INDICES = [0, 1, 2, 3, 4, 7, 14]
+# 0: Voltage (V)
+# 1: Current (A)
+# 2: Power Consumption (kW)
+# 3: Reactive Power (kVAR)
+# 4: Power Factor
+# 7: Grid Supply (kW)
+# 14: Predicted Load (kW)
+
+
 DATA_PATH = "data/smart_grid_dataset.csv"
 OUT_DIR = "prepared_data"
 os.makedirs(OUT_DIR, exist_ok=True)
@@ -37,40 +49,64 @@ def load_and_scale_data(csv_path: str):
     print("scaler_max ", scaler.data_max_)
     return X_scaled, scaler
 
-def generate_physicsish_attack(context: np.ndarray) -> np.ndarray:
+
+def generate_physicsish_attack(context: np.ndarray,
+                               difficulty: float = ATTACK_DIFFICULTY,
+                               feature_indices=ATTACK_FEATURE_INDICES) -> np.ndarray:
     """
-    EASY-MODE ATTACK:
-    Given a context (seq_len-1, D) in [0, 1], create a fake point that is
-    *very* easy to distinguish from real data.
+    Generate a fake point in [0, 1]^D given a context of shape (seq_len-1, D),
+    with difficulty in [0, 1]:
+
+      difficulty = 0.0  -> very obvious attack (extreme spikes to 0 or 1)
+      difficulty = 1.0  -> almost identical to the original last point
 
     Strategy:
       - Start from the last real point.
-      - For a subset of key features (e.g. first 4), snap them to extreme
-        0.0 or 1.0 values, in a way that creates a large spike/flip compared
-        to the context.
-      - Clip to [0, 1] to stay in scaled space.
-
-    This should give you a clearly separable attack vs normal pattern.
+      - For selected features:
+          * Compute an 'extreme' target (0 or 1, flipping around 0.5).
+          * Mix between original and extreme using alpha = 1 - difficulty.
+      - Add a small Gaussian noise that decreases with difficulty.
     """
-    # Use the last real point as a baseline
-    x_last = context[-1].copy()   # shape (D,)
-    D = x_last.shape[0]
+    # Ensure valid range
+    difficulty = float(np.clip(difficulty, 0.0, 1.0))
 
+    if feature_indices is None:
+        feature_indices = ATTACK_FEATURE_INDICES
+
+    # Baseline: last real point in the context
+    x_last = context[-1].copy()  # shape (D,)
+    D = x_last.shape[0]
     x_fake = x_last.copy()
 
-    # Choose how many features to "spike"
-    num_spike_features = min(4, D)   # first 4 features (e.g., V, A, kW, PF)
-    spike_indices = list(range(num_spike_features))
+    # How far we move toward the extreme
+    alpha = 1.0 - difficulty
+    # Small noise amplitude shrinks as difficulty ↑
+    noise_scale = 0.05 * alpha  # 0.05 at diff=0, 0 at diff=1
 
-    # For each of these features, flip to an extreme:
-    # if it's below 0.5, push to 1.0; if above 0.5, push to 0.0
-    for j in spike_indices:
-        if x_fake[j] < 0.5:
-            x_fake[j] = 1.0
+    for j in feature_indices:
+        if j >= D:
+            continue
+
+        v = x_last[j]
+
+        # Define an extreme target: flip to opposite side of [0,1]
+        if v < 0.5:
+            extreme = 1.0
         else:
-            x_fake[j] = 0.0
+            extreme = 0.0
 
-    # Ensure we stay in [0, 1]
+        # Interpolate between original v and extreme
+        # difficulty=0 -> alpha=1 -> x_fake[j] = extreme
+        # difficulty=1 -> alpha=0 -> x_fake[j] = v
+        x_fake[j] = (1.0 - alpha) * v + alpha * extreme
+
+    # Optional noise on *all* features to avoid being too trivial;
+    # scaled by alpha so it's largest when attacks are easy.
+    if noise_scale > 0:
+        noise = np.random.normal(loc=0.0, scale=noise_scale, size=D)
+        x_fake = x_fake + noise
+
+    # Clip back to [0,1] because we're in MinMax-scaled space
     x_fake = np.clip(x_fake, 0.0, 1.0)
     return x_fake.astype(np.float32)
 
@@ -144,7 +180,7 @@ def main():
 
     # Save everything as npz
     np.savez_compressed(
-        os.path.join(OUT_DIR, f"smartgrid_fdi_seq{SEQ_LEN}.npz"),
+        os.path.join(OUT_DIR, f"smartgrid_fdi_seq{SEQ_LEN}_diff{ATTACK_DIFFICULTY} same 7 features.npz"),
         X_train=X_train, y_train=y_train,
         X_val=X_val,     y_val=y_val,
         X_test=X_test,   y_test=y_test,

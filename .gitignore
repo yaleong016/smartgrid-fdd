@@ -20,3 +20,9 @@ data/
 
 # PyTorch checkpoints
 *.pt
+
+# prepared data
+prepared_data
+#images
+images/
+*.png

@@ -11,10 +11,10 @@ RANDOM_SEED = 42
 np.random.seed(RANDOM_SEED)
 random.seed(RANDOM_SEED)
 
-SEQ_LEN = 15
-ATTACK_DIFFICULTY = 0
+SEQ_LEN = 30
+ATTACK_DIFFICULTY = 0.75
 # Indices in numeric_df / X_scaled for the features we want to perturb
-ATTACK_FEATURE_INDICES = [0, 3, 14]
+ATTACK_FEATURE_INDICES = [0, 1,2,3, 4,7, 14]
 # 0: Voltage (V)
 # 1: Current (A)
 # 2: Power Consumption (kW)
